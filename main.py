@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import torch
 import time
 from transformers import RobertaConfig, RobertaForMaskedLM
-from transformers import AdamW
+from torch.optim import AdamW
 from tqdm import tqdm 
 
 data = json.load(open('data/jsb-chorales-16th.json'))
@@ -91,6 +91,7 @@ config = RobertaConfig(
 model = RobertaForMaskedLM(config)
 
 device = torch.device('mps') if torch.backends.mps.is_available() else torch.device('cpu')
+device= torch.device('cpu')
 # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using {device}.")
 model.to(device)
