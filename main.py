@@ -6,23 +6,25 @@ import time
 from transformers import RobertaConfig, RobertaForMaskedLM
 from torch.optim import AdamW
 from tqdm import tqdm 
+from transformers import get_linear_schedule_with_warmup
 
 data = json.load(open('data/jsb-chorales-16th.json'))
 vocab_size = 128 + 3 # 128 notes + 3 extra tokens
-max_length_sequence = 2304 # largest sequence of val set
+
+# n_notes (4) * longest sequence in the dataset
+max_length_sequence = 4*max(max(len(seq) for seq in data_split) for data_split in [data['train'], data['valid'], data['test']])
+print(max_length_sequence)
+
+# eos_token_id is not defined, since we have no tokenizer. -1 means silence, so let use 2 as eos.
+# MIDI notes in this dataset are never below 21, so those are free
+eos_token_id = 2
+mask_token_id = 1
+pad_token_id = 0
 
 def preprocess(data_split):
     # We can visualize each timestep with four notes as a 'sentence', so adding an <eos> token at the end.
     n_sequences = len(data_split)
-    n_notes = 4 # one exception
-    max_timesteps = max(len(sequence) for sequence in data_split)
-
-    # eos_token_id is not defined, since we have no tokenizer. -1 means silence, so let use -2 as eos.
-    eos_token_id = -2
-    mask_token_id = 1
-    pad_token_id = 0
-
-    vocab_size = 128 + 3 # 128 notes + 3 extra tokens
+    n_notes = 4 # one exception, but we handle that later
 
     # input_ids should be [n_sequences, n_timesteps * (n_notes + 1)]
     # we append the eos tokens ad hoc
@@ -76,7 +78,7 @@ encodings_train = preprocess(data['train'])
 encodings_val = preprocess(data['valid'])
 
 dataset_train = Dataset(encodings_train)
-loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=2, shuffle=True)
+loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=4, shuffle=True)
 
 dataset_val = Dataset(encodings_val)
 loader_val = torch.utils.data.DataLoader(dataset_val, batch_size=4, shuffle=True)
@@ -87,7 +89,8 @@ config = RobertaConfig(
     hidden_size=768,
     num_attention_heads=12,
     num_hidden_layers=6,
-    type_vocab_size=1
+    type_vocab_size=1,
+    eos_token_id=eos_token_id,
 )
 
 model = RobertaForMaskedLM(config)
@@ -97,56 +100,67 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using {device}.")
 model.to(device)
 
-# activate training mode
-model.train()
-# initialize optimizer
-optim = AdamW(model.parameters(), lr=1e-4)
+epochs = 10
 
-epochs = 2
+model.train()
+# initialize optimizer (parameters from roberta paper)
+optim = AdamW(model.parameters(), lr=6e-4, eps=1e-6, betas=[0.9, 0.98])
+
+total_steps = len(loader_train) * epochs
+warmup_steps = int(total_steps * 0.05)  # 10% of total steps for warmup
+
+scheduler = get_linear_schedule_with_warmup(
+    optim, num_warmup_steps=warmup_steps, num_training_steps=total_steps
+)
 
 train_losses = []
 val_losses = []
 
 for epoch in range(epochs):
     loop = tqdm(loader_train, leave=True)
+    batch_losses = []
     for batch in loop:
-        # initialize calculated gradients (from prev step)
         optim.zero_grad()
-        # pull all tensor batches required for training
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['labels'].to(device)
-        # process
+        
+        input_ids = batch['input_ids']#.to(device)
+        attention_mask = batch['attention_mask']#.to(device)
+        labels = batch['labels']#.to(device)
+
         outputs = model(input_ids, attention_mask=attention_mask,
                         labels=labels)
-        # extract loss
+        
         loss = outputs.loss
-        train_losses.append(loss.item())
-        # calculate loss for every parameter that needs grad update
+        batch_losses.append(loss.item())
         loss.backward()
-        # update parameters
         optim.step()
-        # print relevant info to progress bar
-        loop.set_description(f'Epoch {epoch}')
-        loop.set_postfix(loss=loss.item())
+        scheduler.step()  # Update learning rate
+
+        loop.set_description(f'Train Epoch {epoch+1}')
+        loop.set_postfix(loss=np.mean(batch_losses))
+    train_losses.append(np.mean(batch_losses))
 
     val_loop = tqdm(loader_val, leave=True)
+    val_batch_losses = []
     for val_batch in val_loop:
-        input_ids = val_batch['input_ids'].to(device)
-        attention_mask = val_batch['attention_mask'].to(device)
-        labels = val_batch['labels'].to(device)
+        input_ids = val_batch['input_ids']#.to(device)
+        attention_mask = val_batch['attention_mask']#.to(device)
+        labels = val_batch['labels']#.to(device)
+        
         outputs = model(input_ids, attention_mask=attention_mask,
                         labels=labels)
+        
         val_loss = outputs.loss
-        val_losses.append(loss.item())
+        val_batch_losses.append(loss.item())
 
-        loop.set_description(f'Val epoch {epoch}')
-        loop.set_postfix(loss=loss.item())
+        val_loop.set_description(f'Valid Epoch {epoch+1}')
+        val_loop.set_postfix(loss=loss.item())
+    val_losses.append(np.mean(val_batch_losses))
 
 plt.plot(train_losses)
 plt.plot(val_losses)
-plt.xlabel('Batch')
+plt.xlabel('Epoch')
 plt.ylabel('Loss')
+plt.title("Loss functions during pretraining")
 plt.savefig('losses.png')
 
 # save model
