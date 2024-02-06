@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 data = json.load(open('data/jsb-chorales-16th.json'))
 vocab_size = 128 + 3 # 128 notes + 3 extra tokens
+max_length_sequence = 2304 # largest sequence of val set
 
 def preprocess(data_split):
     # We can visualize each timestep with four notes as a 'sentence', so adding an <eos> token at the end.
@@ -18,14 +19,14 @@ def preprocess(data_split):
 
     # eos_token_id is not defined, since we have no tokenizer. -1 means silence, so let use -2 as eos.
     eos_token_id = -2
-    mask_token_id = -3
+    mask_token_id = 1
     pad_token_id = 0
 
     vocab_size = 128 + 3 # 128 notes + 3 extra tokens
 
     # input_ids should be [n_sequences, n_timesteps * (n_notes + 1)]
     # we append the eos tokens ad hoc
-    labels = np.ones([n_sequences, max_timesteps * n_notes], dtype=int) * pad_token_id
+    labels = np.ones([n_sequences, max_length_sequence], dtype=int) * pad_token_id
     print(labels.shape)
 
     start_time = time.time()
@@ -36,11 +37,12 @@ def preprocess(data_split):
             if n_notes != 4:
                 break
             for i_note in range(n_notes):
-                if i_note == 3:
-                    # end of sentence reached, i.e.: after four notes in a timestep.
-                    np.append(labels, eos_token_id)
-                else:
-                    labels[i_seq, i_time * n_notes + i_note] = int(data_split[i_seq][i_time][i_note])
+                # print(i_note)
+                # if i_note == 3:
+                #     # end of sentence reached, i.e.: after four notes in a timestep.
+                #     labels = np.append(labels, eos_token_id)
+                # else:
+                labels[i_seq, i_time * n_notes + i_note] = int(data_split[i_seq][i_time][i_note])
     end_time = time.time()
     print(f"Time to process: {end_time - start_time:.2f} seconds")
 
@@ -81,7 +83,7 @@ loader_val = torch.utils.data.DataLoader(dataset_val, batch_size=4, shuffle=True
 
 config = RobertaConfig(
     vocab_size=vocab_size,
-    max_position_embeddings=2304, # how far to do cross-attention (full length of sequence)
+    max_position_embeddings=max_length_sequence, # how far to do cross-attention (full length of sequence)
     hidden_size=768,
     num_attention_heads=12,
     num_hidden_layers=6,
