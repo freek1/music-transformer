@@ -122,9 +122,9 @@ for epoch in range(epochs):
     for batch in loop:
         optim.zero_grad()
         
-        input_ids = batch['input_ids']#.to(device)
-        attention_mask = batch['attention_mask']#.to(device)
-        labels = batch['labels']#.to(device)
+        input_ids = batch['input_ids'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+        labels = batch['labels'].to(device)
 
         outputs = model(input_ids, attention_mask=attention_mask,
                         labels=labels)
@@ -142,9 +142,9 @@ for epoch in range(epochs):
     val_loop = tqdm(loader_val, leave=True)
     val_batch_losses = []
     for val_batch in val_loop:
-        input_ids = val_batch['input_ids']#.to(device)
-        attention_mask = val_batch['attention_mask']#.to(device)
-        labels = val_batch['labels']#.to(device)
+        input_ids = val_batch['input_ids'].to(device)
+        attention_mask = val_batch['attention_mask'].to(device)
+        labels = val_batch['labels'].to(device)
         
         outputs = model(input_ids, attention_mask=attention_mask,
                         labels=labels)
