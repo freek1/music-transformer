@@ -1,16 +1,13 @@
-import json
 import tempfile
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-import time
 from transformers import RobertaConfig, RobertaForMaskedLM
 from torch.optim import AdamW
 from tqdm import tqdm 
 from transformers import get_linear_schedule_with_warmup
 import os
 import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 # eos_token_id is not defined, since we have no tokenizer. -1 means silence, so let use 2 as eos.
@@ -143,5 +140,5 @@ if __name__=="__main__":
 
     # Run this script with:
     '''
-    torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:12485 main.py
+    torchrun --nnodes=1 --nproc_per_node=4 --rdzv_id=100 --rdzv_backend=c10d --rdzv_endpoint=localhost:12485 pretrain.py
     '''
